@@ -25,10 +25,11 @@ setup(
     packages=[
         "KernTableBotox",
     ],
-    entry_points="""
-        [console_scripts]
-        KernTableBotox=KernTableBotox.KernTableBotox:inject_kern_table
-        """,
+    entry_points={
+        "console_scripts": [
+            "KernTableBotox = KernTableBotox.KernTableBotox:inject_kern_table"
+        ]
+    },
     install_requires=[
         "fonttools",
         "click",
