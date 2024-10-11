@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from setuptools import setup
+from setuptools import find_packages, setup
 
 
 def readme():
@@ -22,9 +22,8 @@ setup(
     author="Mathieu Reguer",
     author_email="mathieu.reguer@gmail.com",
     license="All rights reserved",
-    packages=[
-        "KernTableBotox",
-    ],
+    packages=find_packages("KernTableBotox"),
+    package_dir={"": "KernTableBotox"},
     entry_points={
         "console_scripts": [
             "KernTableBotox = KernTableBotox.KernTableBotox:inject_kern_table",
