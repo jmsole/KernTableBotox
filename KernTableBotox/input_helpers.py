@@ -12,14 +12,14 @@ def walk_input_path(input_path, target_extentions=[".otf"], recursive=False):
             inputs = [input_path]
         for p in inputs:
             for ext in target_extentions:
-                fonts.extend(
-                    glob.glob(os.path.join(p, "*%s" % (ext))))
+                fonts.extend(glob.glob(os.path.join(p, "*%s" % (ext))))
     elif input_path.endswith(tuple(target_extentions)):
         input_dir = os.path.dirname(input_path)
         fonts = [input_path]
-    assert len(
-        fonts) > 0, "The input path does not contain any fonts (%s)" % target_extentions
-    return(input_dir, fonts)
+    assert len(fonts) > 0, (
+        "The input path does not contain any fonts (%s)" % target_extentions
+    )
+    return (input_dir, fonts)
 
 
 def suffix_file(file_path, suffix):
