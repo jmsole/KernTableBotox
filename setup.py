@@ -16,7 +16,7 @@ setup(
 	classifiers=[
 		"Development Status :: 5 - Beta",
 		"License :: Other/Proprietary License",
-		"Programming Language :: Python :: 3",
+		"Programming Language :: Python :: 3.12.6",
 		"Topic :: Software Development :: Build Tools",
 	],
 	author="Mathieu Reguer",
