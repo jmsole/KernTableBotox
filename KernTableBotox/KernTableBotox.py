@@ -16,7 +16,6 @@ from . import input_helpers
 
 
 TARGETS = [".otf", ".woff", ".woff2", ".ttf"]
-KERN_TABLE_LENGTH = 10920
 
 KERN_SUBSET = [
     ".notdef",
@@ -378,7 +377,9 @@ def extract_kern_data(f):
     my_kern = {}
     for look in kern:
         for subtable in look.SubTable:
-
+            # deal with extension subtables
+            if hasattr(subtable, "ExtSubTable"):
+                subtable = subtable.ExtSubTable
             # deal with glyph kerning
             if hasattr(subtable, "Format") and subtable.Format == 1:
                 for i, pairSet in enumerate(subtable.PairSet):
@@ -425,38 +426,36 @@ def extract_kern_data(f):
     return my_kern
 
 
-def flatten_kern(kern_dict):
+def flatten_kern(kern_dict, MIN_KERN_VALUE=None):
     flat_kern = {}
     for p, v in kern_dict.items():
-        if type(p[0]) is tuple:
-            for flat in itertools.product(*p):
-                flat_kern[flat] = v
-        else:
-            flat_kern[p] = v
+        if MIN_KERN_VALUE and (v < -MIN_KERN_VALUE or v > MIN_KERN_VALUE):
+            if type(p[0]) is tuple:
+                for flat in itertools.product(*p):
+                    flat_kern[flat] = v
+            else:
+                flat_kern[p] = v
+        elif not MIN_KERN_VALUE:
+            if type(p[0]) is tuple:
+                for flat in itertools.product(*p):
+                    flat_kern[flat] = v
+            else:
+                flat_kern[p] = v
     return flat_kern
 
 
-def charlist(font):
-    characterGlyphs = set()
-    for table in font["cmap"].tables:
-        characterGlyphs.update(table.cmap.values())
-    # print(characterGlyphs)
-    return characterGlyphs
-
-
-def filter_kern(kern_dict, max_length):
+def filter_kern(kern_dict, max_length, subset_kern=None):
     sorted_pairs = sorted(
         list(kern_dict.keys()), key=lambda x: abs(kern_dict[x]), reverse=True
     )
-    # for i in list(sorted_pairs):
-    #     if i[0] not in KERN_SUBSET or i[1] not in KERN_SUBSET:
-    #         sorted_pairs.remove(i)
-    filtered_pairs = [
-        i
-        for i in list(sorted_pairs)
-        if i[0] in KERN_SUBSET and i[1] in KERN_SUBSET
-    ]
-    print(filtered_pairs)
+    if subset_kern:
+        filtered_pairs = [
+            i
+            for i in list(sorted_pairs)
+            if i[0] in subset_kern and i[1] in subset_kern
+        ]
+    else:
+        filtered_pairs = sorted_pairs
     return {pair: kern_dict[pair] for pair in filtered_pairs[:max_length]}
 
 
@@ -469,6 +468,7 @@ def build_kern_table(flat_kern_dict):
     kern_table.kernTables = []
 
     pair_list = list(flat_kern_dict.items())
+    final_len_kern_list = str(len(pair_list))
     # pair_list = pair_list[:10920]
     # print(len(pair_list))
     # 10920 is the maximum subtable len
@@ -484,7 +484,7 @@ def build_kern_table(flat_kern_dict):
             subtable[p[0]] = p[1]
 
         kern_table.kernTables.append(subtable)
-    return kern_table
+    return kern_table, final_len_kern_list
 
 
 def chunk_list(list_, chunk_length):
@@ -516,9 +516,53 @@ def chunk_list(list_, chunk_length):
     default=False,
     help="process subfolders recursively",
 )
+@click.option(
+    "-p",
+    "--pair_limit",
+    is_flag=False,
+    flag_value="Flag",
+    default=10920,
+    help=(
+        "Limit the total number of kern pairs to save"
+        "\nIf no number is given default is 10920"
+    ),
+    type=int,
+)
+@click.option(
+    "-m",
+    "--min_kern_value",
+    help="Remove all kern pairs below the given value",
+    type=int,
+)
+@click.option(
+    "-s",
+    "--subset",
+    is_flag=True,
+    help="Subset kerning based on predetermined list of Latin characters",
+)
+@click.option(
+    "-c",
+    "--char_list",
+    help="Subset based on comma-separated list of glyph names",
+    type=str,
+)
+@click.option(
+    "-l",
+    "--char_file",
+    help="Subset based on file containing a list of glyph names, one per line",
+)
 @click.argument("input_path", type=click.Path(exists=False))
 def inject_kern_table(
-    input_path, output_dir, suffix_tag, no_suffix, subfolder
+    input_path,
+    output_dir,
+    suffix_tag,
+    no_suffix,
+    subfolder,
+    pair_limit,
+    min_kern_value,
+    subset,
+    char_list,
+    char_file,
 ):
     t = time.time()
     print("Kern Table Injection")
@@ -528,7 +572,10 @@ def inject_kern_table(
         input_path, target_extentions=TARGETS, recursive=subfolder
     )
     font_count = 0
+    MIN_KERN_VALUE = 0
+    MAX_KERN_PAIRS = 1000000
     for p in font_path:
+        print(subset)
 
         if output_dir:
             out_path = input_helpers.output_file_to_another_folder(
@@ -543,14 +590,50 @@ def inject_kern_table(
             outpath = input_helpers.suffix_file(out_path, suffix_tag)
 
         f = ttLib.TTFont(p)
-        characterList = charlist(f)
         my_kern = extract_kern_data(f)
-        flat_kern = flatten_kern(my_kern)
-        filtered_kern = filter_kern(flat_kern, KERN_TABLE_LENGTH)
-        f["kern"] = build_kern_table(filtered_kern)
+        if min_kern_value:
+            MIN_KERN_VALUE = min_kern_value
+        flat_kern = flatten_kern(my_kern, MIN_KERN_VALUE)
+
+        if pair_limit and (subset or char_list or char_file):
+            MAX_KERN_PAIRS = pair_limit
+        else:
+            MAX_KERN_PAIRS = pair_limit
+            flat_kern = filter_kern(
+                flat_kern, max_length=MAX_KERN_PAIRS, subset_kern=None
+            )
+
+        if subset:
+            flat_kern = filter_kern(
+                flat_kern, max_length=MAX_KERN_PAIRS, subset_kern=KERN_SUBSET
+            )
+        elif char_list:
+            CHARACTER_LIST = [s.strip() for s in char_list.split(",")]
+            flat_kern = filter_kern(
+                flat_kern,
+                max_length=MAX_KERN_PAIRS,
+                subset_kern=CHARACTER_LIST,
+            )
+        elif char_file:
+            CHARACTER_LIST = []
+            with open(char_file) as charFile:
+                CHARACTER_LIST = [c.rstrip() for c in charFile]
+            flat_kern = filter_kern(
+                flat_kern,
+                max_length=MAX_KERN_PAIRS,
+                subset_kern=CHARACTER_LIST,
+            )
+
+        f["kern"], final_count = build_kern_table(flat_kern)
         f.save(outpath)
         f.close()
         print(("%s -> done" % p))
+        print(
+            "Final number of kern pairs in kern table for "
+            + p
+            + ": "
+            + final_count
+        )
         font_count += 1
 
     print("")
